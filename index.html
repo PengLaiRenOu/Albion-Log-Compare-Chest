@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Albion 異常核查 (精簡版)</title>
+    <style>
+        :root {
+            --bg: #1a1c23;
+            --card-bg: #2d303e;
+            --accent: #00bcd4;
+            --text: #e0e0e0;
+            --border: #444;
+            --success: #50fa7b;
+            --danger: #ff5555;
+            --warning: #f1fa8c;
+        }
+
+        body {
+            font-family: 'Segoe UI', Microsoft JhengHei, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1300px;
+            margin: 0 auto;
+        }
+
+        .input-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .input-box {
+            background: var(--card-bg);
+            padding: 15px;
+            border-radius: 8px;
+        }
+
+        textarea {
+            width: 100%;
+            height: 200px;
+            background: #12141a;
+            color: #f8f8f2;
+            border: 1px solid var(--border);
+            padding: 10px;
+            font-size: 11px;
+            resize: vertical;
+        }
+
+        .controls {
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        button {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 12px 40px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 1.1rem;
+        }
+
+        button:hover {
+            background: #00e5ff;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: var(--card-bg);
+            margin-bottom: 50px;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        th {
+            background: rgba(0, 0, 0, 0.5);
+            color: var(--accent);
+            padding: 12px;
+            font-size: 0.9rem;
+        }
+
+        td {
+            padding: 10px;
+            text-align: center;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .item-icon {
+            width: 56px;
+            height: 56px;
+            background: #12141a;
+            border-radius: 4px;
+        }
+
+        .player-name {
+            font-weight: bold;
+            color: #f39c12;
+            margin: 20px 0 10px 0;
+            border-left: 4px solid var(--accent);
+            padding-left: 10px;
+        }
+
+        .status-short {
+            color: var(--danger);
+            font-weight: bold;
+        }
+
+        .status-extra {
+            color: var(--warning);
+            font-weight: bold;
+        }
+
+        #playerNavContainer {
+            position: fixed;
+            right: 20px;
+            top: 20px;
+            width: 200px;
+            background: var(--card-bg);
+            border: 1px solid var(--accent);
+            padding: 10px;
+            border-radius: 8px;
+            max-height: 80vh;
+            overflow-y: auto;
+            z-index: 100;
+        }
+
+        #playerNavContainer ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        #playerNavContainer a {
+            color: var(--text);
+            text-decoration: none;
+            font-size: 0.85rem;
+            display: block;
+            padding: 4px 0;
+        }
+
+        #playerNavContainer a:hover {
+            color: var(--accent);
+        }
+
+        #debugInfo {
+            background: #000;
+            color: #50fa7b;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 12px;
+            margin-bottom: 20px;
+            display: none;
+            border: 1px solid #333;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <h2>⚔️ Albion 異常核查 (僅顯示異常玩家)</h2>
+
+        <div id="debugInfo"></div>
+
+        <div class="input-grid">
+            <div class="input-box">
+                <h3>1. 第一個 Log (實際存入)</h3>
+                <p id="mapStatus" style="font-size: 0.8rem;">載入中...</p>
+                <div style="margin-bottom: 10px; display: flex; gap: 10px; align-items: center; font-size: 0.8rem;">
+                    <label>從：<input type="datetime-local" id="startTime" style="font-size: 0.8rem;"></label>
+                    <label>到：<input type="datetime-local" id="endTime" style="font-size: 0.8rem;"></label>
+                </div>
+                <textarea id="firstLog" placeholder="日期	玩家	物品	附魔	品質	數量"></textarea>
+            </div>
+            <div class="input-box">
+                <h3>2. 第二個 Log (Loot Log)</h3>
+                <p style="font-size: 0.8rem; color: #888;">過濾：KILLTROPHY, TRASH</p>
+                <textarea id="secondLog" placeholder="timestamp_utc;...;looted_by;item_id;...;quantity"></textarea>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button onclick="compareLogs()">開始交叉核對</button>
+        </div>
+
+        <div id="playerNavContainer" style="display:none;">
+            <h4 style="margin:0 0 10px 0; color: var(--danger);">⚠ 異常玩家清單</h4>
+            <ul id="playerNav"></ul>
+        </div>
+
+        <div id="resultArea"></div>
+    </div>
+
+    <script>
+        let itemMap = {};
+
+        async function loadItemMap() {
+            const status = document.getElementById("mapStatus");
+            try {
+                const res = await fetch("items_zh_tw_map.json");
+                itemMap = await res.json();
+                status.textContent = "✅ 對照表已就緒";
+                status.style.color = "#50fa7b";
+            } catch (e) {
+                status.textContent = "❌ 找不到 items_zh_tw_map.json";
+                status.style.color = "#ff5555";
+            }
+        }
+        loadItemMap();
+
+        function buildImageUrl(itemId, enchant) {
+            return `https://render.albiononline.com/v1/item/${itemId}${enchant > 0 ? '@' + enchant : ''}`;
+        }
+
+        function isExcluded(itemId) {
+            if (!itemId) return false;
+            const s = itemId.toUpperCase();
+            return s.includes("KILLTROPHY") || s.includes("TRASH");
+        }
+
+        function compareLogs() {
+            const debug = document.getElementById("debugInfo");
+            const resultArea = document.getElementById("resultArea");
+            const playerNav = document.getElementById("playerNav");
+            const navContainer = document.getElementById("playerNavContainer");
+
+            // 取得時間過濾器的值
+            const startTimeVal = document.getElementById("startTime").value;
+            const endTimeVal = document.getElementById("endTime").value;
+            const startTime = startTimeVal ? new Date(startTimeVal) : null;
+            const endTime = endTimeVal ? new Date(endTimeVal) : null;
+
+            // 初始化... (維持原樣)
+            resultArea.innerHTML = "";
+            playerNav.innerHTML = "";
+            navContainer.style.display = "none";
+            debug.style.display = "none";
+            debug.innerHTML = "";
+
+            const firstText = document.getElementById("firstLog").value.trim();
+            const secondText = document.getElementById("secondLog").value.trim();
+            if (!firstText || !secondText) return;
+
+            // --- 1. 處理第一個 Log (公會日誌) ---
+            const actualStoredByPlayer = {};
+            const firstLines = firstText.split("\n");
+
+            firstLines.forEach(line => {
+                const p = line.split(/\t|\s{2,}/);
+                if (p.length < 6) return;
+
+                // --- 時間過濾邏輯 ---
+                const logTimeString = p[0].trim(); // 假設第一欄是日期時間 "03/10/2026 15:42:04"
+                const logTime = new Date(logTimeString);
+
+                // 如果日期格式不合法或不在範圍內，則跳過
+                if (!isNaN(logTime.getTime())) {
+                    if (startTime && logTime < startTime) return;
+                    if (endTime && logTime > endTime) return;
+                }
+                // ------------------
+
+                const rawPlayer = p[1].trim();
+                const upperPlayer = rawPlayer.toUpperCase();
+                const itemName = p[2].trim();
+                const enchant = p[3].trim();
+                const amount = parseInt(p[5]);
+
+                if (amount > 0 && itemName !== "垃圾") {
+                    const convertedId = itemMap[itemName] || itemName;
+                    if (!convertedId || isExcluded(convertedId)) return;
+
+                    if (!actualStoredByPlayer[upperPlayer]) {
+                        actualStoredByPlayer[upperPlayer] = { displayName: rawPlayer, items: {} };
+                    }
+                    const key = `${convertedId}|${enchant}`;
+                    actualStoredByPlayer[upperPlayer].items[key] = (actualStoredByPlayer[upperPlayer].items[key] || 0) + amount;
+                }
+            });
+
+            // --- 2. 處理第二個 Log (Loot Log) ---
+            const lootByPlayer = {};
+            const secondLines = secondText.split("\n");
+            const startIndex = secondLines[0].includes("timestamp_utc") ? 1 : 0;
+
+            for (let i = startIndex; i < secondLines.length; i++) {
+                const cols = secondLines[i].split(";");
+                if (cols.length < 7) continue;
+
+                const rawPlayer = cols[3].trim();
+                const upperPlayer = rawPlayer.toUpperCase();
+                const rawItemId = cols[4].trim();
+                const quantity = parseInt(cols[6]) || 0;
+
+                let itemId = rawItemId, enchant = 0;
+                if (rawItemId.includes("@")) {
+                    const parts = rawItemId.split("@");
+                    itemId = parts[0];
+                    enchant = parseInt(parts[1]) || 0;
+                }
+                if (isExcluded(itemId)) continue;
+
+                if (!lootByPlayer[upperPlayer]) {
+                    lootByPlayer[upperPlayer] = { displayName: rawPlayer, items: {} };
+                }
+                const key = `${itemId}|${enchant}`;
+                if (!lootByPlayer[upperPlayer].items[key]) {
+                    lootByPlayer[upperPlayer].items[key] = { itemId, enchant, expectedAmount: 0 };
+                }
+                lootByPlayer[upperPlayer].items[key].expectedAmount += quantity;
+            }
+
+            // --- 3. 渲染與過濾 ---
+            const allUpperPlayerKeys = Array.from(new Set([...Object.keys(lootByPlayer), ...Object.keys(actualStoredByPlayer)])).sort();
+            let totalIssues = 0;
+
+            allUpperPlayerKeys.forEach(uKey => {
+                const lootItems = (lootByPlayer[uKey] || { items: {} }).items;
+                const storedItems = (actualStoredByPlayer[uKey] || { items: {} }).items;
+                const displayName = (lootByPlayer[uKey] || actualStoredByPlayer[uKey]).displayName;
+
+                const allItemKeys = Array.from(new Set([...Object.keys(lootItems), ...Object.keys(storedItems)]));
+                const issueItems = [];
+
+                allItemKeys.forEach(iKey => {
+                    const expected = lootItems[iKey] ? lootItems[iKey].expectedAmount : 0;
+                    const actual = storedItems[iKey] || 0;
+                    const diff = actual - expected;
+                    if (diff !== 0) {
+                        const [itemId, enchant] = iKey.split("|");
+                        issueItems.push({ itemId, enchant, expected, actual, diff });
+                    }
+                });
+
+                // 關鍵：如果 issueItems 是空的（沒問題），就直接 return，不執行下面的渲染
+                if (issueItems.length === 0) return;
+
+                // 有問題才顯示
+                totalIssues++;
+                navContainer.style.display = "block";
+                const li = document.createElement("li");
+                li.innerHTML = `<a href="#jump_${uKey}">${displayName} (${issueItems.length})</a>`;
+                playerNav.appendChild(li);
+
+                let html = `<div id="jump_${uKey}"><h3 class="player-name">👤 ${displayName}</h3><table><thead><tr><th>圖示</th><th>物品 ID</th><th>附魔</th><th>應存 (Loot)</th><th>實存 (日誌)</th><th>差異</th><th>狀態</th></tr></thead><tbody>`;
+
+                issueItems.sort((a, b) => a.diff - b.diff).forEach(item => {
+                    const statusClass = item.diff < 0 ? "status-short" : "status-extra";
+                    html += `<tr>
+                <td><img src="${buildImageUrl(item.itemId, item.enchant)}" class="item-icon"></td>
+                <td style="font-size:10px; color:#aaa;">${item.itemId}</td>
+                <td>.${item.enchant}</td>
+                <td>${item.expected}</td>
+                <td style="color: #f1fa8c;">${item.actual}</td>
+                <td class="${statusClass}">${item.diff > 0 ? '+' + item.diff : item.diff}</td>
+                <td class="${statusClass}">${item.diff < 0 ? '缺少' : '多存'}</td>
+            </tr>`;
+                });
+                html += "</tbody></table></div>";
+                resultArea.innerHTML += html;
+            });
+
+            if (totalIssues === 0) {
+                resultArea.innerHTML = "<div style='text-align:center; padding:50px; color:var(--success); font-size:1.5rem;'>🎉 太棒了！所有玩家的存入紀錄皆正確無誤。</div>";
+            }
+        }
+    </script>
+</body>
+
+</html>
