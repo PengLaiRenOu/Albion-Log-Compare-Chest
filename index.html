@@ -246,7 +246,7 @@
             debug.style.display = "none";
             debug.innerHTML = "";
 
-            const firstText = document.getElementById("firstLog").value.replace('"',"").trim();
+            const firstText = document.getElementById("firstLog").value.replaceAll('"',"").trim();
             const secondText = document.getElementById("secondLog").value.trim();
             if (!firstText || !secondText) return;
 
